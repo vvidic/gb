@@ -128,6 +128,38 @@ LOOP:
 	ticker.Stop()
 }
 
+func collectStats(result <-chan stats, n int) stats {
+	total := stats{}
+	total.code = make(map[int]int)
+	for i := 0; i < n; i++ {
+		s := <-result
+		total.req += s.req
+		total.err += s.err
+		total.rerr += s.rerr
+		total.bytes += s.bytes
+		for k, v := range s.code {
+			total.code[k] += v
+		}
+	}
+
+	return total
+}
+
+func reportStats(total stats, duration time.Duration) {
+	fmt.Println("Requests:", total.req)
+	fmt.Printf("Rate: %.1f/s\n", float64(total.req)/duration.Seconds())
+	fmt.Println("Bytes:", total.bytes)
+	if total.err > 0 {
+		fmt.Println("Errors:", total.err)
+	}
+	if total.rerr > 0 {
+		fmt.Println("Read errors:", total.rerr)
+	}
+	for k, v := range total.code {
+		fmt.Printf("Code[%d]: %d\n", k, v)
+	}
+}
+
 func main() {
 	var compression = flag.Bool("compression", true, "use HTTP compression")
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
@@ -182,31 +214,8 @@ func main() {
 	time.Sleep(*duration)
 	close(done)
 
-	total := stats{}
-	total.code = make(map[int]int)
-	for i := 0; i < *parallel; i++ {
-		s := <-result
-		total.req += s.req
-		total.err += s.err
-		total.rerr += s.rerr
-		total.bytes += s.bytes
-		for k, v := range s.code {
-			total.code[k] += v
-		}
-	}
-
-	fmt.Println("Requests:", total.req)
-	fmt.Printf("Rate: %.1f/s\n", float64(total.req)/duration.Seconds())
-	fmt.Println("Bytes:", total.bytes)
-	if total.err > 0 {
-		fmt.Println("Errors:", total.err)
-	}
-	if total.rerr > 0 {
-		fmt.Println("Read errors:", total.rerr)
-	}
-	for k, v := range total.code {
-		fmt.Printf("Code[%d]: %d\n", k, v)
-	}
+	total := collectStats(result, *parallel)
+	reportStats(total, *duration)
 
 	if *memprofile != "" {
 		f, err := os.Create(*memprofile)
