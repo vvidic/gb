@@ -354,29 +354,50 @@ func writeMemProfile(filename string) {
 	}
 }
 
-func main() {
-	var compression = flag.Bool("compression", true, "use HTTP compression")
-	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
-	var duration = flag.Duration("duration", 15*time.Second, "test duration")
-	var gcpercent = flag.Int("gcpercent", 1000, "garbage collection target percentage")
-	var histogram = flag.Bool("histogram", false, "display response time histogram")
-	var memprofile = flag.String("memprofile", "", "write memory profile to file")
-	var parallel = flag.Int("parallel", 20, "number of parallel client connections")
-	var redirects = flag.Bool("redirects", true, "follow HTTP redirects")
-	var timeout = flag.Duration("timeout", 10*time.Second, "request timeout")
+type flags struct {
+	compression bool
+	cpuprofile  string
+	duration    time.Duration
+	gcpercent   int
+	histogram   bool
+	memprofile  string
+	parallel    int
+	redirects   bool
+	timeout     time.Duration
+}
+
+func parseFlags() *flags {
+	f := flags{}
+
+	flag.BoolVar(&f.compression, "compression", true, "use HTTP compression")
+	flag.StringVar(&f.cpuprofile, "cpuprofile", "", "write cpu profile to file")
+	flag.DurationVar(&f.duration, "duration", 15*time.Second, "test duration")
+	flag.IntVar(&f.gcpercent, "gcpercent", 1000, "garbage collection target percentage")
+	flag.BoolVar(&f.histogram, "histogram", false, "display response time histogram")
+	flag.StringVar(&f.memprofile, "memprofile", "", "write memory profile to file")
+	flag.IntVar(&f.parallel, "parallel", 20, "number of parallel client connections")
+	flag.BoolVar(&f.redirects, "redirects", true, "follow HTTP redirects")
+	flag.DurationVar(&f.timeout, "timeout", 10*time.Second, "request timeout")
 
 	flag.Parse()
+
+	return &f
+}
+
+func main() {
+	f := parseFlags()
+
 	url := flag.Arg(0)
 	if url == "" {
 		fmt.Println("No url given")
 		os.Exit(1)
 	}
 
-	if startCPUProfile(*cpuprofile) {
+	if startCPUProfile(f.cpuprofile) {
 		defer stopCPUProfile()
 	}
 
-	debug.SetGCPercent(*gcpercent)
+	debug.SetGCPercent(f.gcpercent)
 
 	done := make(chan struct{})
 	result := make(chan *stats)
@@ -388,27 +409,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = checkRequest(req, buildClient(*compression, *redirects, *timeout))
+	err = checkRequest(req, buildClient(f.compression, f.redirects, f.timeout))
 	if err != nil {
 		fmt.Printf("Url check failed for %s: %s\n", url, err)
 		os.Exit(1)
 	}
 
 	t1 := time.Now()
-	fmt.Printf("Running %d parallel clients for %v...\n", *parallel, *duration)
-	for i := 0; i < *parallel; i++ {
-		cli := buildClient(*compression, *redirects, *timeout)
+	fmt.Printf("Running %d parallel clients for %v...\n", f.parallel, f.duration)
+	for i := 0; i < f.parallel; i++ {
+		cli := buildClient(f.compression, f.redirects, f.timeout)
 		go bench(req, cli, done, result, errors)
 	}
 	go errorReporter(done, errors)
 
-	time.Sleep(*duration)
+	time.Sleep(f.duration)
 	fmt.Println("Stopping clients and collecting results...")
 	close(done)
 
 	delta := time.Since(t1)
-	total := collectStats(result, *parallel)
-	reportStats(total, delta, *histogram)
+	total := collectStats(result, f.parallel)
+	reportStats(total, delta, f.histogram)
 
-	writeMemProfile(*memprofile)
+	writeMemProfile(f.memprofile)
 }
