@@ -22,11 +22,17 @@ type stats struct {
 	code  map[int]int64
 }
 
-func bench(req *http.Request, client *http.Client,
-	done <-chan struct{}, result chan<- stats, errors chan<- error) {
-
+func newStats() *stats {
 	s := stats{}
 	s.code = make(map[int]int64)
+
+	return &s
+}
+
+func bench(req *http.Request, client *http.Client,
+	done <-chan struct{}, result chan<- *stats, errors chan<- error) {
+
+	s := newStats()
 
 	read := 0
 	buf := make([]byte, 10*1024)
@@ -129,9 +135,9 @@ LOOP:
 	ticker.Stop()
 }
 
-func collectStats(result <-chan stats, n int) stats {
-	total := stats{}
-	total.code = make(map[int]int64)
+func collectStats(result <-chan *stats, n int) *stats {
+	total := newStats()
+
 	for i := 0; i < n; i++ {
 		s := <-result
 		total.req += s.req
@@ -195,7 +201,7 @@ func reportBandwidth(n int64, duration time.Duration) string {
 	return fmt.Sprintf("%.2f %s", m, units[i])
 }
 
-func reportStatus(total stats) {
+func reportStatus(total *stats) {
 	if len(total.code) == 0 {
 		return
 	}
@@ -213,7 +219,7 @@ func reportStatus(total stats) {
 	}
 }
 
-func reportStats(total stats, duration time.Duration) {
+func reportStats(total *stats, duration time.Duration) {
 	fmt.Println()
 	fmt.Printf("Duration: %.2fs\n", duration.Seconds())
 	fmt.Println("Requests:", total.req)
@@ -296,7 +302,7 @@ func main() {
 	debug.SetGCPercent(*gcpercent)
 
 	done := make(chan struct{})
-	result := make(chan stats)
+	result := make(chan *stats)
 	errors := make(chan error)
 
 	req, err := buildRequest(http.MethodGet, url)
