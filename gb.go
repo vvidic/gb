@@ -15,11 +15,11 @@ import (
 )
 
 type stats struct {
-	req   int64
-	err   int64
-	rerr  int64
-	bytes int64
-	code  map[int]int64
+	req   int64         // requests
+	err   int64         // connection errors
+	rerr  int64         // read errors
+	bytes int64         // bytes read
+	code  map[int]int64 // status code counts
 }
 
 func newStats() *stats {
