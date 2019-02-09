@@ -86,6 +86,19 @@ func buildRequest(method, url string) (*http.Request, error) {
 	return http.NewRequest(method, url, nil)
 }
 
+func checkRequest(req *http.Request, client *http.Client) error {
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode >= http.StatusBadRequest { // 400
+		return fmt.Errorf("%s", resp.Status)
+	}
+
+	return nil
+}
+
 func main() {
 	var compression = flag.Bool("compression", true, "use HTTP compression")
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
@@ -117,9 +130,15 @@ func main() {
 	done := make(chan struct{})
 	result := make(chan stats)
 
-	req, err := buildRequest("GET", url)
+	req, err := buildRequest(http.MethodGet, url)
 	if err != nil {
-		fmt.Println("Invalid url:", err)
+		fmt.Printf("Invalid url %s: %s\n", url, err)
+		os.Exit(1)
+	}
+
+	err = checkRequest(req, buildClient(*compression, *timeout))
+	if err != nil {
+		fmt.Printf("Url check failed for %s: %s\n", url, err)
 		os.Exit(1)
 	}
 
