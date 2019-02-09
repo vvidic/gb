@@ -21,33 +21,38 @@ type stats struct {
 	code  map[int]int
 }
 
-func bench(req *http.Request, client *http.Client, done chan struct{}, result chan stats) {
+func bench(req *http.Request, client *http.Client,
+	done <-chan struct{}, result chan<- stats, errors chan<- error) {
+
 	s := stats{}
 	s.code = make(map[int]int)
 
-	written := 0
+	read := 0
 	buf := make([]byte, 10*1024)
+
+	var err error
+	var resp *http.Response
 
 LOOP:
 	for {
 		s.req++
-		resp, err := client.Do(req)
+		resp, err = client.Do(req)
 		if err != nil {
-			fmt.Println(err)
+			errors <- fmt.Errorf("request failed: %s", err)
 			s.err++
 		} else {
 			s.code[resp.StatusCode]++
 
 			for {
-				written, err = resp.Body.Read(buf)
-				s.bytes += written
+				read, err = resp.Body.Read(buf)
+				s.bytes += read
 				if err != nil {
 					break
 				}
 			}
 
 			if err != nil && err != io.EOF {
-				fmt.Println(err)
+				errors <- fmt.Errorf("read failed: %s", err)
 				s.rerr++
 			}
 
@@ -99,6 +104,30 @@ func checkRequest(req *http.Request, client *http.Client) error {
 	return nil
 }
 
+func errorReporter(done <-chan struct{}, errors <-chan error) {
+	var err error
+	hist := make(map[string]int)
+	ticker := time.NewTicker(1 * time.Second)
+
+LOOP:
+	for {
+		select {
+		case err = <-errors:
+			hist[err.Error()]++
+		case <-ticker.C:
+			for k, v := range hist {
+				fmt.Printf("Error: %s (%d)\n", k, v)
+				delete(hist, k)
+			}
+		case <-done:
+			break LOOP
+		default:
+		}
+	}
+
+	ticker.Stop()
+}
+
 func main() {
 	var compression = flag.Bool("compression", true, "use HTTP compression")
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
@@ -129,6 +158,7 @@ func main() {
 
 	done := make(chan struct{})
 	result := make(chan stats)
+	errors := make(chan error)
 
 	req, err := buildRequest(http.MethodGet, url)
 	if err != nil {
@@ -145,8 +175,9 @@ func main() {
 	fmt.Printf("Running %d parallel clients for %v...\n", *parallel, *duration)
 	for i := 0; i < *parallel; i++ {
 		cli := buildClient(*compression, *timeout)
-		go bench(req, cli, done, result)
+		go bench(req, cli, done, result, errors)
 	}
+	go errorReporter(done, errors)
 
 	time.Sleep(*duration)
 	close(done)
