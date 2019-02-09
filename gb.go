@@ -21,14 +21,9 @@ type stats struct {
 	code  map[int]int
 }
 
-func bench(url string, client *http.Client, done chan struct{}, result chan stats) {
+func bench(req *http.Request, client *http.Client, done chan struct{}, result chan stats) {
 	s := stats{}
 	s.code = make(map[int]int)
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		fmt.Println(err)
-	}
 
 	written := 0
 	buf := make([]byte, 10*1024)
@@ -87,6 +82,10 @@ func buildClient(compress bool, timeout time.Duration) *http.Client {
 	return client
 }
 
+func buildRequest(method, url string) (*http.Request, error) {
+	return http.NewRequest(method, url, nil)
+}
+
 func main() {
 	var compression = flag.Bool("compression", true, "use HTTP compression")
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
@@ -118,10 +117,16 @@ func main() {
 	done := make(chan struct{})
 	result := make(chan stats)
 
+	req, err := buildRequest("GET", url)
+	if err != nil {
+		fmt.Println("Invalid url:", err)
+		os.Exit(1)
+	}
+
 	fmt.Printf("Running %d parallel clients for %v...\n", *parallel, *duration)
 	for i := 0; i < *parallel; i++ {
 		cli := buildClient(*compression, *timeout)
-		go bench(url, cli, done, result)
+		go bench(req, cli, done, result)
 	}
 
 	time.Sleep(*duration)
