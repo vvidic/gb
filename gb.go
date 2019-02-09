@@ -15,18 +15,18 @@ import (
 )
 
 type stats struct {
-	req   int
-	err   int
-	rerr  int
-	bytes int
-	code  map[int]int
+	req   int64
+	err   int64
+	rerr  int64
+	bytes int64
+	code  map[int]int64
 }
 
 func bench(req *http.Request, client *http.Client,
 	done <-chan struct{}, result chan<- stats, errors chan<- error) {
 
 	s := stats{}
-	s.code = make(map[int]int)
+	s.code = make(map[int]int64)
 
 	read := 0
 	buf := make([]byte, 10*1024)
@@ -46,7 +46,7 @@ LOOP:
 
 			for {
 				read, err = resp.Body.Read(buf)
-				s.bytes += read
+				s.bytes += int64(read)
 				if err != nil {
 					break
 				}
@@ -131,7 +131,7 @@ LOOP:
 
 func collectStats(result <-chan stats, n int) stats {
 	total := stats{}
-	total.code = make(map[int]int)
+	total.code = make(map[int]int64)
 	for i := 0; i < n; i++ {
 		s := <-result
 		total.req += s.req
@@ -146,7 +146,7 @@ func collectStats(result <-chan stats, n int) stats {
 	return total
 }
 
-func reportSize(n int) string {
+func reportSize(n int64) string {
 	units := []string{"B", "kB", "MB", "GB", "TB", "PB"}
 
 	var i int
@@ -163,7 +163,7 @@ func reportSize(n int) string {
 	return fmt.Sprintf("%.2f %s", m, units[i])
 }
 
-func reportThroughput(n int, duration time.Duration) string {
+func reportThroughput(n int64, duration time.Duration) string {
 	units := []string{"B/s", "kB/s", "MB/s", "GB/s", "TB/s", "PB/s"}
 
 	var i int
@@ -179,7 +179,7 @@ func reportThroughput(n int, duration time.Duration) string {
 	return fmt.Sprintf("%.2f %s", m, units[i])
 }
 
-func reportBandwidth(n int, duration time.Duration) string {
+func reportBandwidth(n int64, duration time.Duration) string {
 	units := []string{"bps", "kbps", "Mbps", "Gbps"}
 
 	var i int
