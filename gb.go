@@ -295,10 +295,10 @@ func reportStats(total *stats, duration time.Duration, histogram bool) {
 	fmt.Printf("Duration: %.2fs\n", duration.Seconds())
 	fmt.Println("Requests:", total.req)
 	fmt.Printf("Rate: %.2f req/s\n", float64(total.req)/duration.Seconds())
-	fmt.Println("Size:", reportSize(total.bytes))
-	fmt.Println("Bandwidth:", reportBandwidth(total.bytes, duration))
+	fmt.Printf("Size: %s (%s/req)\n", reportSize(total.bytes),
+		reportSize(total.bytes/total.req))
 	fmt.Println("Throughput:", reportThroughput(total.bytes, duration))
-	fmt.Println("Size/Request:", reportSize(total.bytes/total.req))
+	fmt.Println("Bandwidth:", reportBandwidth(total.bytes, duration))
 	if total.err > 0 {
 		fmt.Println("Errors:", total.err)
 	}
