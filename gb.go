@@ -164,7 +164,8 @@ func reportSize(n int) string {
 
 func reportStats(total stats, duration time.Duration) {
 	fmt.Println("Requests:", total.req)
-	fmt.Printf("Rate: %.1f/s\n", float64(total.req)/duration.Seconds())
+	fmt.Printf("Duration: %.1fs\n", duration.Seconds())
+	fmt.Printf("Rate/s: %.1f\n", float64(total.req)/duration.Seconds())
 	fmt.Println("Size:", reportSize(total.bytes))
 	if total.err > 0 {
 		fmt.Println("Errors:", total.err)
@@ -256,6 +257,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	t1 := time.Now()
 	fmt.Printf("Running %d parallel clients for %v...\n", *parallel, *duration)
 	for i := 0; i < *parallel; i++ {
 		cli := buildClient(*compression, *timeout)
@@ -267,7 +269,7 @@ func main() {
 	close(done)
 
 	total := collectStats(result, *parallel)
-	reportStats(total, *duration)
+	reportStats(total, time.Since(t1))
 
 	writeMemProfile(*memprofile)
 }
