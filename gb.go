@@ -20,11 +20,13 @@ type stats struct {
 	rerr  int64         // read errors
 	bytes int64         // bytes read
 	code  map[int]int64 // status code counts
+	hist  map[int]int64 // response time histogram
 }
 
 func newStats() *stats {
 	s := stats{}
 	s.code = make(map[int]int64)
+	s.hist = make(map[int]int64)
 
 	return &s
 }
@@ -40,9 +42,14 @@ func bench(req *http.Request, client *http.Client,
 	var err error
 	var resp *http.Response
 
+	var t1 time.Time
+	var delta time.Duration
+	var milisec int
+
 LOOP:
 	for {
 		s.req++
+		t1 = time.Now()
 		resp, err = client.Do(req)
 		if err != nil {
 			errors <- fmt.Errorf("request failed: %s", err)
@@ -65,6 +72,10 @@ LOOP:
 
 			resp.Body.Close()
 		}
+
+		delta = time.Since(t1)
+		milisec = int(delta.Nanoseconds() / 1000000)
+		s.hist[milisec]++
 
 		select {
 		case <-done:
@@ -147,6 +158,9 @@ func collectStats(result <-chan *stats, n int) *stats {
 		for k, v := range s.code {
 			total.code[k] += v
 		}
+		for k, v := range s.hist {
+			total.hist[k] += v
+		}
 	}
 
 	return total
@@ -219,7 +233,54 @@ func reportStatus(total *stats) {
 	}
 }
 
-func reportStats(total *stats, duration time.Duration) {
+func reportHistogram(total *stats) {
+	if len(total.hist) == 0 {
+		return
+	}
+
+	fmt.Println()
+
+	milis := make([]int, 0, len(total.hist))
+	var cmax int64
+	for t, c := range total.hist {
+		milis = append(milis, t)
+		if c > cmax {
+			cmax = c
+		}
+	}
+	sort.Ints(milis)
+
+	mwidth := len(fmt.Sprintf("%d", milis[len(milis)-1]))
+	cwidth := len(fmt.Sprintf("%d", cmax))
+
+	var sum, percentile int64
+	want := []int64{10, 25, 50, 75, 90, 95, 99}
+	next := 0
+
+	for _, m := range milis {
+		fmt.Printf("Time[%*d ms]: %*d", mwidth, m, cwidth, total.hist[m])
+
+		if next < len(want) {
+			sum += total.hist[m]
+			percentile = sum * 100 / total.req
+
+			i := next
+			for i < len(want) && percentile >= want[i] {
+				i++
+			}
+			i--
+
+			if i >= next {
+				fmt.Printf(" (%d%%)", want[i])
+				next = i + 1
+			}
+		}
+
+		fmt.Println()
+	}
+}
+
+func reportStats(total *stats, duration time.Duration, histogram bool) {
 	fmt.Println()
 	fmt.Printf("Duration: %.2fs\n", duration.Seconds())
 	fmt.Println("Requests:", total.req)
@@ -236,6 +297,10 @@ func reportStats(total *stats, duration time.Duration) {
 	}
 
 	reportStatus(total)
+
+	if histogram {
+		reportHistogram(total)
+	}
 }
 
 func startCPUProfile(filename string) bool {
@@ -284,6 +349,7 @@ func main() {
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 	var duration = flag.Duration("duration", 15*time.Second, "test duration")
 	var gcpercent = flag.Int("gcpercent", 1000, "garbage collection target percentage")
+	var histogram = flag.Bool("histogram", false, "display response time histogram")
 	var memprofile = flag.String("memprofile", "", "write memory profile to file")
 	var parallel = flag.Int("parallel", 20, "number of parallel client connections")
 	var timeout = flag.Duration("timeout", 10*time.Second, "request timeout")
@@ -331,7 +397,7 @@ func main() {
 
 	delta := time.Since(t1)
 	total := collectStats(result, *parallel)
-	reportStats(total, delta)
+	reportStats(total, delta, *histogram)
 
 	writeMemProfile(*memprofile)
 }
