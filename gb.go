@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
+	"sort"
 	"time"
 )
 
@@ -159,7 +160,7 @@ func reportSize(n int) string {
 		m /= 1024
 	}
 
-	return fmt.Sprintf("%.1f %s", m, units[i])
+	return fmt.Sprintf("%.2f %s", m, units[i])
 }
 
 func reportThroughput(n int, duration time.Duration) string {
@@ -175,14 +176,14 @@ func reportThroughput(n int, duration time.Duration) string {
 
 		m /= 1024
 	}
-	return fmt.Sprintf("%.1f %s", m, units[i])
+	return fmt.Sprintf("%.2f %s", m, units[i])
 }
 
 func reportBandwidth(n int, duration time.Duration) string {
 	units := []string{"bps", "kbps", "Mbps", "Gbps"}
 
 	var i int
-	m := float64(n) / duration.Seconds() * 8
+	m := float64(8*n) / duration.Seconds()
 
 	for i = 0; i < len(units); i++ {
 		if m < 1000 {
@@ -191,25 +192,44 @@ func reportBandwidth(n int, duration time.Duration) string {
 
 		m /= 1000
 	}
-	return fmt.Sprintf("%.1f %s", m, units[i])
+	return fmt.Sprintf("%.2f %s", m, units[i])
+}
+
+func reportStatus(total stats) {
+	if len(total.code) == 0 {
+		return
+	}
+
+	fmt.Println()
+
+	codes := make([]int, 0, len(total.code))
+	for c := range total.code {
+		codes = append(codes, c)
+	}
+	sort.Ints(codes)
+
+	for _, c := range codes {
+		fmt.Printf("Status[%d]: %d\n", c, total.code[c])
+	}
 }
 
 func reportStats(total stats, duration time.Duration) {
+	fmt.Println()
+	fmt.Printf("Duration: %.2fs\n", duration.Seconds())
 	fmt.Println("Requests:", total.req)
-	fmt.Printf("Duration: %.1fs\n", duration.Seconds())
-	fmt.Printf("Rate/s: %.1f\n", float64(total.req)/duration.Seconds())
+	fmt.Printf("Rate: %.2f req/s\n", float64(total.req)/duration.Seconds())
 	fmt.Println("Size:", reportSize(total.bytes))
-	fmt.Println("Throughput:", reportThroughput(total.bytes, duration))
 	fmt.Println("Bandwidth:", reportBandwidth(total.bytes, duration))
+	fmt.Println("Throughput:", reportThroughput(total.bytes, duration))
+	fmt.Println("Size/Request:", reportSize(total.bytes/total.req))
 	if total.err > 0 {
 		fmt.Println("Errors:", total.err)
 	}
 	if total.rerr > 0 {
 		fmt.Println("Read errors:", total.rerr)
 	}
-	for k, v := range total.code {
-		fmt.Printf("Code[%d]: %d\n", k, v)
-	}
+
+	reportStatus(total)
 }
 
 func startCPUProfile(filename string) bool {
@@ -300,10 +320,12 @@ func main() {
 	go errorReporter(done, errors)
 
 	time.Sleep(*duration)
+	fmt.Println("Stopping clients and collecting results...")
 	close(done)
 
+	delta := time.Since(t1)
 	total := collectStats(result, *parallel)
-	reportStats(total, time.Since(t1))
+	reportStats(total, delta)
 
 	writeMemProfile(*memprofile)
 }
