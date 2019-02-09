@@ -145,10 +145,27 @@ func collectStats(result <-chan stats, n int) stats {
 	return total
 }
 
+func reportSize(n int) string {
+	units := []string{"B", "kB", "MB", "GB", "TB", "PB"}
+
+	var i int
+	m := float64(n)
+
+	for i = 0; i < len(units); i++ {
+		if m < 1024 {
+			break
+		}
+
+		m /= 1024
+	}
+
+	return fmt.Sprintf("%.1f %s", m, units[i])
+}
+
 func reportStats(total stats, duration time.Duration) {
 	fmt.Println("Requests:", total.req)
 	fmt.Printf("Rate: %.1f/s\n", float64(total.req)/duration.Seconds())
-	fmt.Println("Bytes:", total.bytes)
+	fmt.Println("Size:", reportSize(total.bytes))
 	if total.err > 0 {
 		fmt.Println("Errors:", total.err)
 	}
