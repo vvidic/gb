@@ -21,22 +21,10 @@ type stats struct {
 	code  map[int]int
 }
 
-func bench(url string, compress bool, timeout time.Duration, done chan struct{}, result chan stats) {
+func bench(url string, client *http.Client, done chan struct{}, result chan stats) {
 	s := stats{}
 	s.code = make(map[int]int)
 
-	transport := &http.Transport{
-		DisableCompression:  !compress,
-		TLSHandshakeTimeout: timeout,
-		DialContext: (&net.Dialer{
-			Timeout:   timeout,
-			DualStack: true,
-		}).DialContext,
-	}
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   timeout,
-	}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		fmt.Println(err)
@@ -81,6 +69,24 @@ LOOP:
 	result <- s
 }
 
+func buildClient(compress bool, timeout time.Duration) *http.Client {
+	transport := &http.Transport{
+		DisableCompression:  !compress,
+		TLSHandshakeTimeout: timeout,
+		DialContext: (&net.Dialer{
+			Timeout:   timeout,
+			DualStack: true,
+		}).DialContext,
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   timeout,
+	}
+
+	return client
+}
+
 func main() {
 	var compression = flag.Bool("compression", true, "use HTTP compression")
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
@@ -114,7 +120,8 @@ func main() {
 
 	fmt.Printf("Running %d parallel clients for %v...\n", *parallel, *duration)
 	for i := 0; i < *parallel; i++ {
-		go bench(url, *compression, *timeout, done, result)
+		cli := buildClient(*compression, *timeout)
+		go bench(url, cli, done, result)
 	}
 
 	time.Sleep(*duration)
