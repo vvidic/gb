@@ -87,7 +87,11 @@ LOOP:
 	result <- s
 }
 
-func buildClient(compress bool, timeout time.Duration) *http.Client {
+func disableRedirects(req *http.Request, via []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+
+func buildClient(compress bool, redirects bool, timeout time.Duration) *http.Client {
 	transport := &http.Transport{
 		DisableCompression:  !compress,
 		TLSHandshakeTimeout: timeout,
@@ -97,9 +101,15 @@ func buildClient(compress bool, timeout time.Duration) *http.Client {
 		}).DialContext,
 	}
 
+	redirectHandler := disableRedirects
+	if redirects {
+		redirectHandler = nil
+	}
+
 	client := &http.Client{
-		Transport: transport,
-		Timeout:   timeout,
+		CheckRedirect: redirectHandler,
+		Transport:     transport,
+		Timeout:       timeout,
 	}
 
 	return client
@@ -352,6 +362,7 @@ func main() {
 	var histogram = flag.Bool("histogram", false, "display response time histogram")
 	var memprofile = flag.String("memprofile", "", "write memory profile to file")
 	var parallel = flag.Int("parallel", 20, "number of parallel client connections")
+	var redirects = flag.Bool("redirects", true, "follow HTTP redirects")
 	var timeout = flag.Duration("timeout", 10*time.Second, "request timeout")
 
 	flag.Parse()
@@ -377,7 +388,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = checkRequest(req, buildClient(*compression, *timeout))
+	err = checkRequest(req, buildClient(*compression, *redirects, *timeout))
 	if err != nil {
 		fmt.Printf("Url check failed for %s: %s\n", url, err)
 		os.Exit(1)
@@ -386,7 +397,7 @@ func main() {
 	t1 := time.Now()
 	fmt.Printf("Running %d parallel clients for %v...\n", *parallel, *duration)
 	for i := 0; i < *parallel; i++ {
-		cli := buildClient(*compression, *timeout)
+		cli := buildClient(*compression, *redirects, *timeout)
 		go bench(req, cli, done, result, errors)
 	}
 	go errorReporter(done, errors)
