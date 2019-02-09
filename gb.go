@@ -162,11 +162,45 @@ func reportSize(n int) string {
 	return fmt.Sprintf("%.1f %s", m, units[i])
 }
 
+func reportThroughput(n int, duration time.Duration) string {
+	units := []string{"B/s", "kB/s", "MB/s", "GB/s", "TB/s", "PB/s"}
+
+	var i int
+	m := float64(n) / duration.Seconds()
+
+	for i = 0; i < len(units); i++ {
+		if m < 1024 {
+			break
+		}
+
+		m /= 1024
+	}
+	return fmt.Sprintf("%.1f %s", m, units[i])
+}
+
+func reportBandwidth(n int, duration time.Duration) string {
+	units := []string{"bps", "kbps", "Mbps", "Gbps"}
+
+	var i int
+	m := float64(n) / duration.Seconds() * 8
+
+	for i = 0; i < len(units); i++ {
+		if m < 1000 {
+			break
+		}
+
+		m /= 1000
+	}
+	return fmt.Sprintf("%.1f %s", m, units[i])
+}
+
 func reportStats(total stats, duration time.Duration) {
 	fmt.Println("Requests:", total.req)
 	fmt.Printf("Duration: %.1fs\n", duration.Seconds())
 	fmt.Printf("Rate/s: %.1f\n", float64(total.req)/duration.Seconds())
 	fmt.Println("Size:", reportSize(total.bytes))
+	fmt.Println("Throughput:", reportThroughput(total.bytes, duration))
+	fmt.Println("Bandwidth:", reportBandwidth(total.bytes, duration))
 	if total.err > 0 {
 		fmt.Println("Errors:", total.err)
 	}
