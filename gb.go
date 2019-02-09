@@ -160,6 +160,47 @@ func reportStats(total stats, duration time.Duration) {
 	}
 }
 
+func startCPUProfile(filename string) bool {
+	if filename == "" {
+		return false
+	}
+
+	f, err := os.Create(filename)
+	if err != nil {
+		fmt.Println("Could not create cpu profile:", err)
+		os.Exit(1)
+	}
+
+	err = pprof.StartCPUProfile(f)
+	if err != nil {
+		fmt.Println("Could not start cpu profile:", err)
+		os.Exit(1)
+	}
+
+	return true
+}
+
+func stopCPUProfile() {
+	pprof.StopCPUProfile()
+}
+
+func writeMemProfile(filename string) {
+	if filename == "" {
+		return
+	}
+
+	f, err := os.Create(filename)
+	if err != nil {
+		fmt.Println("Could not create memory profile: ", err)
+	}
+	defer f.Close()
+
+	runtime.GC() // get up-to-date statistics
+	if err := pprof.WriteHeapProfile(f); err != nil {
+		fmt.Println("could not write memory profile: ", err)
+	}
+}
+
 func main() {
 	var compression = flag.Bool("compression", true, "use HTTP compression")
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
@@ -176,14 +217,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			fmt.Println("Could not create cpu profile:", err)
-			os.Exit(1)
-		}
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
+	if startCPUProfile(*cpuprofile) {
+		defer stopCPUProfile()
 	}
 
 	debug.SetGCPercent(*gcpercent)
@@ -217,15 +252,5 @@ func main() {
 	total := collectStats(result, *parallel)
 	reportStats(total, *duration)
 
-	if *memprofile != "" {
-		f, err := os.Create(*memprofile)
-		if err != nil {
-			fmt.Println("Could not create memory profile: ", err)
-		}
-		runtime.GC() // get up-to-date statistics
-		if err := pprof.WriteHeapProfile(f); err != nil {
-			fmt.Println("could not write memory profile: ", err)
-		}
-		f.Close()
-	}
+	writeMemProfile(*memprofile)
 }
