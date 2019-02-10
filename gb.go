@@ -156,18 +156,18 @@ func checkRequest(req *http.Request, client *http.Client) ([]string, error) {
 
 func errorReporter(done <-chan struct{}, errors <-chan error) {
 	var err error
-	hist := make(map[string]int)
+	history := make(map[string]int)
 	ticker := time.NewTicker(1 * time.Second)
 
 LOOP:
 	for {
 		select {
 		case err = <-errors:
-			hist[err.Error()]++
+			history[err.Error()]++
 		case <-ticker.C:
-			for k, v := range hist {
+			for k, v := range history {
 				fmt.Printf("Error: %s (%d)\n", k, v)
-				delete(hist, k)
+				delete(history, k)
 			}
 		case <-done:
 			break LOOP
