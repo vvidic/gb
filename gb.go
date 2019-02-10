@@ -32,7 +32,8 @@ func newStats() *stats {
 }
 
 func bench(req *http.Request, client *http.Client,
-	done <-chan struct{}, result chan<- *stats, errors chan<- error) {
+	done <-chan struct{}, result chan<- *stats, errors chan<- error,
+	ticker *time.Ticker) {
 
 	s := newStats()
 
@@ -48,6 +49,10 @@ func bench(req *http.Request, client *http.Client,
 
 LOOP:
 	for {
+		if ticker != nil {
+			<-ticker.C
+		}
+
 		s.req++
 		t1 = time.Now()
 		resp, err = client.Do(req)
@@ -362,6 +367,7 @@ type flags struct {
 	histogram   bool
 	memprofile  string
 	parallel    int
+	rate        int
 	redirects   bool
 	timeout     time.Duration
 }
@@ -376,6 +382,7 @@ func parseFlags() *flags {
 	flag.BoolVar(&f.histogram, "histogram", false, "display response time histogram")
 	flag.StringVar(&f.memprofile, "memprofile", "", "write memory profile to file")
 	flag.IntVar(&f.parallel, "parallel", 20, "number of parallel client connections")
+	flag.IntVar(&f.rate, "rate", 0, "limit the rate of requests per second")
 	flag.BoolVar(&f.redirects, "redirects", true, "follow HTTP redirects")
 	flag.DurationVar(&f.timeout, "timeout", 10*time.Second, "request timeout")
 
@@ -403,6 +410,12 @@ func main() {
 	result := make(chan *stats)
 	errors := make(chan error)
 
+	var ticker *time.Ticker
+	if f.rate > 0 {
+		ticker = time.NewTicker(time.Second / time.Duration(f.rate))
+		defer ticker.Stop()
+	}
+
 	req, err := buildRequest(http.MethodGet, url)
 	if err != nil {
 		fmt.Printf("Invalid url %s: %s\n", url, err)
@@ -419,7 +432,7 @@ func main() {
 	fmt.Printf("Running %d parallel clients for %v...\n", f.parallel, f.duration)
 	for i := 0; i < f.parallel; i++ {
 		cli := buildClient(f.compression, f.redirects, f.timeout)
-		go bench(req, cli, done, result, errors)
+		go bench(req, cli, done, result, errors, ticker)
 	}
 	go errorReporter(done, errors)
 
