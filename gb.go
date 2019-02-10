@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
@@ -464,7 +465,16 @@ func main() {
 		go rampupGenerator(rampch, f.parallel, f.rampup)
 	}
 
-	time.Sleep(f.duration)
+	intr := make(chan os.Signal, 1)
+	signal.Notify(intr, os.Interrupt)
+	timer := time.NewTimer(f.duration)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+	case <-intr:
+	}
+
 	fmt.Println("Stopping clients and collecting results...")
 	close(done)
 
