@@ -33,7 +33,7 @@ func newStats() *stats {
 
 func bench(req *http.Request, client *http.Client,
 	done <-chan struct{}, result chan<- *stats, errors chan<- error,
-	ticker *time.Ticker) {
+	rampch <-chan struct{}, ticker *time.Ticker) {
 
 	s := newStats()
 
@@ -46,6 +46,10 @@ func bench(req *http.Request, client *http.Client,
 	var t1 time.Time
 	var delta time.Duration
 	var milisec int
+
+	if rampch != nil {
+		<-rampch
+	}
 
 LOOP:
 	for {
@@ -159,6 +163,19 @@ LOOP:
 	}
 
 	ticker.Stop()
+}
+
+func rampupGenerator(rampch chan<- struct{}, n int, t time.Duration) {
+	pause := t / time.Duration(n)
+
+	for n > 0 {
+		rampch <- struct{}{}
+		n--
+
+		if n > 0 {
+			time.Sleep(pause)
+		}
+	}
 }
 
 func collectStats(result <-chan *stats, n int) *stats {
@@ -367,6 +384,7 @@ type flags struct {
 	histogram   bool
 	memprofile  string
 	parallel    int
+	rampup      time.Duration
 	rate        int
 	redirects   bool
 	timeout     time.Duration
@@ -382,6 +400,7 @@ func parseFlags() *flags {
 	flag.BoolVar(&f.histogram, "histogram", false, "display response time histogram")
 	flag.StringVar(&f.memprofile, "memprofile", "", "write memory profile to file")
 	flag.IntVar(&f.parallel, "parallel", 20, "number of parallel client connections")
+	flag.DurationVar(&f.rampup, "rampup", 0, "startup interval for client connections")
 	flag.IntVar(&f.rate, "rate", 0, "limit the rate of requests per second")
 	flag.BoolVar(&f.redirects, "redirects", true, "follow HTTP redirects")
 	flag.DurationVar(&f.timeout, "timeout", 10*time.Second, "request timeout")
@@ -410,6 +429,11 @@ func main() {
 	result := make(chan *stats)
 	errors := make(chan error)
 
+	var rampch chan struct{}
+	if f.rampup > 0 {
+		rampch = make(chan struct{})
+	}
+
 	var ticker *time.Ticker
 	if f.rate > 0 {
 		ticker = time.NewTicker(time.Second / time.Duration(f.rate))
@@ -432,9 +456,13 @@ func main() {
 	fmt.Printf("Running %d parallel clients for %v...\n", f.parallel, f.duration)
 	for i := 0; i < f.parallel; i++ {
 		cli := buildClient(f.compression, f.redirects, f.timeout)
-		go bench(req, cli, done, result, errors, ticker)
+		go bench(req, cli, done, result, errors, rampch, ticker)
 	}
 	go errorReporter(done, errors)
+
+	if f.rampup > 0 {
+		go rampupGenerator(rampch, f.parallel, f.rampup)
+	}
 
 	time.Sleep(f.duration)
 	fmt.Println("Stopping clients and collecting results...")
