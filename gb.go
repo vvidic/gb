@@ -398,6 +398,12 @@ type flags struct {
 	timeout     time.Duration
 }
 
+func printUsage() {
+	output := flag.CommandLine.Output()
+	fmt.Fprintf(output, "Usage: gb [options] <url>\n\nOptions:\n")
+	flag.PrintDefaults()
+}
+
 func parseFlags() *flags {
 	f := flags{}
 
@@ -413,6 +419,7 @@ func parseFlags() *flags {
 	flag.BoolVar(&f.redirects, "redirects", true, "follow HTTP redirects")
 	flag.DurationVar(&f.timeout, "timeout", 10*time.Second, "request timeout")
 
+	flag.Usage = printUsage
 	flag.Parse()
 
 	return &f
@@ -423,7 +430,8 @@ func main() {
 
 	url := flag.Arg(0)
 	if url == "" {
-		fmt.Println("No url given")
+		fmt.Printf("Error: No url given\n\n")
+		printUsage()
 		os.Exit(1)
 	}
 
