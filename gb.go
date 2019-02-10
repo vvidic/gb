@@ -54,6 +54,12 @@ func bench(req *http.Request, client *http.Client,
 
 LOOP:
 	for {
+		select {
+		case <-done:
+			break LOOP
+		default:
+		}
+
 		if ticker != nil {
 			<-ticker.C
 		}
@@ -86,12 +92,6 @@ LOOP:
 		delta = time.Since(t1)
 		milisec = int(delta.Nanoseconds() / 1000000)
 		s.hist[milisec]++
-
-		select {
-		case <-done:
-			break LOOP
-		default:
-		}
 	}
 
 	result <- s
@@ -166,15 +166,22 @@ LOOP:
 	ticker.Stop()
 }
 
-func rampupGenerator(rampch chan<- struct{}, n int, t time.Duration) {
-	pause := t / time.Duration(n)
+func rampupGenerator(rampch chan<- struct{}, done <-chan struct{}, n int, t time.Duration) {
+	interval := t / time.Duration(n)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
-	for n > 0 {
+	for {
 		rampch <- struct{}{}
-		n--
 
-		if n > 0 {
-			time.Sleep(pause)
+		n--
+		if n == 0 {
+			break
+		}
+
+		select {
+		case <-ticker.C:
+		case <-done:
 		}
 	}
 }
@@ -462,7 +469,7 @@ func main() {
 	go errorReporter(done, errors)
 
 	if f.rampup > 0 {
-		go rampupGenerator(rampch, f.parallel, f.rampup)
+		go rampupGenerator(rampch, done, f.parallel, f.rampup)
 	}
 
 	intr := make(chan os.Signal, 1)
