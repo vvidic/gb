@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"runtime/pprof"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -129,17 +130,28 @@ func buildRequest(method, url string) (*http.Request, error) {
 	return http.NewRequest(method, url, nil)
 }
 
-func checkRequest(req *http.Request, client *http.Client) error {
+func checkRequest(req *http.Request, client *http.Client) ([]string, error) {
+	redirects := make([]string, 0)
+	if client.CheckRedirect == nil {
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			redirects = append(redirects, req.URL.String())
+			if len(redirects) >= 10 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		}
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return redirects, err
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest { // 400
-		return fmt.Errorf("%s", resp.Status)
+		return redirects, fmt.Errorf("%s", resp.Status)
 	}
 
-	return nil
+	return redirects, nil
 }
 
 func errorReporter(done <-chan struct{}, errors <-chan error) {
@@ -462,10 +474,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = checkRequest(req, buildClient(f.compression, f.redirects, f.timeout))
+	redirs, err := checkRequest(req, buildClient(f.compression, f.redirects, f.timeout))
 	if err != nil {
 		fmt.Printf("Url check failed for %s: %s\n", url, err)
 		os.Exit(1)
+	}
+	if len(redirs) > 0 {
+		fmt.Printf("Warning: redirects detected: %s -> %s\n", url, strings.Join(redirs, " -> "))
 	}
 
 	t1 := time.Now()
