@@ -427,7 +427,7 @@ func parseFlags() *flags {
 	flag.StringVar(&f.memprofile, "memprofile", "", "write memory profile to file")
 	flag.IntVar(&f.parallel, "parallel", 20, "number of parallel client connections")
 	flag.DurationVar(&f.rampup, "rampup", 0, "startup interval for client connections")
-	flag.IntVar(&f.rate, "rate", 0, "limit the rate of requests per second")
+	flag.IntVar(&f.rate, "rate", 0, "limit rate (requests per second)")
 	flag.BoolVar(&f.redirects, "redirects", true, "follow HTTP redirects")
 	flag.DurationVar(&f.timeout, "timeout", 10*time.Second, "request timeout")
 
