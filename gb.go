@@ -308,9 +308,11 @@ func reportHistogram(total *stats) {
 	var sum, percentile int64
 	want := []int64{10, 25, 50, 75, 90, 95, 99}
 	next := 0
+	gwidth := 60 - mwidth - cwidth
 
 	for _, m := range milis {
-		fmt.Printf("Time[%*d ms]: %*d", mwidth, m, cwidth, total.hist[m])
+		s1 := fmt.Sprintf("Time[%*d ms]: %*d", mwidth, m, cwidth, total.hist[m])
+		s2 := "       |"
 
 		if next < len(want) {
 			sum += total.hist[m]
@@ -323,12 +325,15 @@ func reportHistogram(total *stats) {
 			i--
 
 			if i >= next {
-				fmt.Printf(" (%d%%)", want[i])
+				s2 = fmt.Sprintf(" (%d%%) |", want[i])
 				next = i + 1
 			}
 		}
 
-		fmt.Println()
+		stars := total.hist[m] * int64(gwidth) / cmax
+		s3 := strings.Repeat("*", int(stars))
+
+		fmt.Print(s1, s2, s3, "\n")
 	}
 }
 
