@@ -312,7 +312,7 @@ func reportHistogram(total *stats) {
 
 	for _, m := range milis {
 		s1 := fmt.Sprintf("Time[%*d ms]: %*d", mwidth, m, cwidth, total.hist[m])
-		s2 := "       |"
+		s2 := "     "
 
 		if next < len(want) {
 			sum += total.hist[m]
@@ -325,15 +325,15 @@ func reportHistogram(total *stats) {
 			i--
 
 			if i >= next {
-				s2 = fmt.Sprintf(" (%d%%) |", want[i])
+				s2 = fmt.Sprintf("(%d%%)", want[i])
 				next = i + 1
 			}
 		}
 
 		stars := total.hist[m] * int64(gwidth) / cmax
-		s3 := strings.Repeat("*", int(stars))
+		s3 := "|" + strings.Repeat("*", int(stars))
 
-		fmt.Print(s1, s2, s3, "\n")
+		fmt.Println(s1, s2, s3)
 	}
 }
 
