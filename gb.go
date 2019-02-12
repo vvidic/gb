@@ -25,6 +25,11 @@ type stats struct {
 	hist  map[int]int64 // response time histogram
 }
 
+type livestats struct {
+	req   int64
+	bytes int64
+}
+
 func newStats() *stats {
 	s := stats{}
 	s.code = make(map[int]int64)
@@ -35,23 +40,25 @@ func newStats() *stats {
 
 func bench(req *http.Request, client *http.Client,
 	done <-chan struct{}, result chan<- *stats, errors chan<- error,
-	rampch <-chan struct{}, ticker *time.Ticker) {
+	rampch <-chan struct{}, livech chan<- livestats, ticker *time.Ticker) {
 
 	s := newStats()
-
 	read := 0
 	buf := make([]byte, 10*1024)
 
 	var err error
 	var resp *http.Response
 
-	var t1 time.Time
+	var t1, t2 time.Time
 	var delta time.Duration
 	var milisec int
 
 	if rampch != nil {
 		<-rampch
 	}
+
+	live := livestats{}
+	livets := time.Now()
 
 LOOP:
 	for {
@@ -66,6 +73,7 @@ LOOP:
 		}
 
 		s.req++
+		live.req++
 		t1 = time.Now()
 		resp, err = client.Do(req)
 		if err != nil {
@@ -77,6 +85,7 @@ LOOP:
 			for {
 				read, err = resp.Body.Read(buf)
 				s.bytes += int64(read)
+				live.bytes += int64(read)
 				if err != nil {
 					break
 				}
@@ -90,9 +99,17 @@ LOOP:
 			resp.Body.Close()
 		}
 
-		delta = time.Since(t1)
+		t2 = time.Now()
+		delta = t2.Sub(t1)
 		milisec = int(delta.Nanoseconds() / 1000000)
 		s.hist[milisec]++
+
+		if livech != nil && t2.Sub(livets) >= time.Second {
+			livech <- live
+			livets = t2
+			live.req = 0
+			live.bytes = 0
+		}
 	}
 
 	result <- s
@@ -176,6 +193,37 @@ LOOP:
 	}
 
 	ticker.Stop()
+}
+
+func liveUpdates(done <-chan struct{}, livech <-chan livestats, duration time.Duration) {
+	var sum, live livestats
+	start := time.Now()
+
+	var t time.Time
+	var elapsed time.Duration
+	var percent int64
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+LOOP:
+	for {
+		select {
+		case live = <-livech:
+			sum.req += live.req
+			sum.bytes += live.bytes
+		case t = <-ticker.C:
+			elapsed = t.Sub(start)
+			percent = elapsed.Nanoseconds() * 100 / duration.Nanoseconds()
+			fmt.Printf("Duration: %3.0fs (%2d%%) | Rate: %d req/s | Throughput: %s\n",
+				elapsed.Seconds(), percent, sum.req,
+				reportThroughput(sum.bytes, time.Second))
+			sum.req = 0
+			sum.bytes = 0
+		case <-done:
+			break LOOP
+		}
+	}
 }
 
 func rampupGenerator(rampch chan<- struct{}, done <-chan struct{}, n int, t time.Duration) {
@@ -407,6 +455,7 @@ type flags struct {
 	duration    time.Duration
 	gcpercent   int
 	histogram   bool
+	live        bool
 	memprofile  string
 	parallel    int
 	rampup      time.Duration
@@ -429,6 +478,7 @@ func parseFlags() *flags {
 	flag.DurationVar(&f.duration, "duration", 15*time.Second, "test duration")
 	flag.IntVar(&f.gcpercent, "gcpercent", 1000, "garbage collection target percentage")
 	flag.BoolVar(&f.histogram, "histogram", false, "display response time histogram")
+	flag.BoolVar(&f.live, "live", false, "show periodic progress updates")
 	flag.StringVar(&f.memprofile, "memprofile", "", "write memory profile to file")
 	flag.IntVar(&f.parallel, "parallel", 20, "number of parallel client connections")
 	flag.DurationVar(&f.rampup, "rampup", 0, "startup interval for client connections")
@@ -462,6 +512,11 @@ func main() {
 	result := make(chan *stats)
 	errors := make(chan error)
 
+	var livech chan livestats
+	if f.live {
+		livech = make(chan livestats, 10)
+	}
+
 	var rampch chan struct{}
 	if f.rampup > 0 {
 		rampch = make(chan struct{})
@@ -492,12 +547,16 @@ func main() {
 	fmt.Printf("Running %d parallel clients for %v...\n", f.parallel, f.duration)
 	for i := 0; i < f.parallel; i++ {
 		cli := buildClient(f.compression, f.redirects, f.timeout)
-		go bench(req, cli, done, result, errors, rampch, ticker)
+		go bench(req, cli, done, result, errors, rampch, livech, ticker)
 	}
 	go errorReporter(done, errors)
 
 	if f.rampup > 0 {
 		go rampupGenerator(rampch, done, f.parallel, f.rampup)
+	}
+
+	if f.live {
+		go liveUpdates(done, livech, f.duration)
 	}
 
 	intr := make(chan os.Signal, 1)
