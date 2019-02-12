@@ -225,6 +225,10 @@ LOOP:
 			break LOOP
 		}
 	}
+
+	// workers might still be sending livestats
+	for range livech {
+	}
 }
 
 func rampupGenerator(rampch chan<- struct{}, done <-chan struct{}, n int, t time.Duration) {
@@ -515,7 +519,7 @@ func main() {
 
 	var livech chan livestats
 	if f.live {
-		livech = make(chan livestats, 10)
+		livech = make(chan livestats, f.parallel)
 	}
 
 	var rampch chan struct{}
@@ -577,5 +581,6 @@ func main() {
 	total := collectStats(result, f.parallel)
 	reportStats(total, delta, f.histogram)
 
+	close(livech)
 	writeMemProfile(f.memprofile)
 }
