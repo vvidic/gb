@@ -174,7 +174,9 @@ func checkRequest(req *http.Request, client *http.Client) ([]string, error) {
 func errorReporter(done <-chan struct{}, errors <-chan error) {
 	var err error
 	history := make(map[string]int)
+
 	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
 LOOP:
 	for {
@@ -188,7 +190,6 @@ LOOP:
 			}
 		case <-done:
 			break LOOP
-		default:
 		}
 	}
 
