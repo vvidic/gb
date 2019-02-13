@@ -519,7 +519,11 @@ func main() {
 
 	var livech chan livestats
 	if f.live {
-		livech = make(chan livestats, f.parallel)
+		size := f.parallel
+		if size > 1000 {
+			size = 1000
+		}
+		livech = make(chan livestats, size)
 	}
 
 	var rampch chan struct{}
