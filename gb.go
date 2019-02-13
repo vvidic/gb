@@ -195,7 +195,9 @@ LOOP:
 		}
 	}
 
-	ticker.Stop()
+	// workers might still be sending errors
+	for range errors {
+	}
 }
 
 func liveUpdates(done <-chan struct{}, livech <-chan livestats, duration time.Duration) {
@@ -610,6 +612,8 @@ func main() {
 	total := collectStats(result, f.parallel)
 	reportStats(total, delta, f.histogram)
 
+	close(errors)
 	close(livech)
+
 	writeMemProfile(f.memprofile)
 }
