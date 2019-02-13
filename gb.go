@@ -13,6 +13,7 @@ import (
 	"runtime/pprof"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -413,6 +414,25 @@ func reportStats(total *stats, duration time.Duration, histogram bool) {
 	}
 }
 
+func updateRlimit(parallel int) error {
+	var val syscall.Rlimit
+
+	err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &val)
+	if err != nil {
+		return err
+	}
+
+	want := uint64(parallel) + 32
+	if val.Cur >= want {
+		return nil
+	}
+
+	val.Max = want
+	val.Cur = want
+
+	return syscall.Setrlimit(syscall.RLIMIT_NOFILE, &val)
+}
+
 func startCPUProfile(filename string) bool {
 	if filename == "" {
 		return false
@@ -550,6 +570,10 @@ func main() {
 	}
 	if len(redirs) > 0 {
 		fmt.Printf("Warning: redirects detected: %s -> %s\n", url, strings.Join(redirs, " -> "))
+	}
+
+	if err = updateRlimit(f.parallel); err != nil {
+		fmt.Println("Warning: failed to update rlimit:", err)
 	}
 
 	t1 := time.Now()
