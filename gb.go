@@ -401,7 +401,7 @@ func reportStats(total *stats, duration time.Duration, histogram bool) {
 	fmt.Println("Throughput:", reportThroughput(total.bytes, duration))
 	fmt.Println("Bandwidth:", reportBandwidth(total.bytes, duration))
 	if total.err > 0 {
-		fmt.Println("Errors:", total.err)
+		fmt.Println("Connection errors:", total.err)
 	}
 	if total.rerr > 0 {
 		fmt.Println("Read errors:", total.rerr)
