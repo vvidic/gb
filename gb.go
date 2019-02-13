@@ -189,6 +189,7 @@ LOOP:
 				fmt.Printf("Error: %s (%d)\n", k, v)
 				delete(history, k)
 			}
+			runtime.GC()
 		case <-done:
 			break LOOP
 		}
