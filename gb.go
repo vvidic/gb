@@ -613,7 +613,9 @@ func main() {
 	reportStats(total, delta, f.histogram)
 
 	close(errors)
-	close(livech)
+	if livech != nil {
+		close(livech)
+	}
 
 	writeMemProfile(f.memprofile)
 }
