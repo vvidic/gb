@@ -220,9 +220,11 @@ LOOP:
 		case t = <-ticker.C:
 			elapsed = t.Sub(start)
 			percent = elapsed.Nanoseconds() * 100 / duration.Nanoseconds()
-			fmt.Printf("Duration: %3.0fs (%2d%%) | Rate: %d req/s | Throughput: %s\n",
-				elapsed.Seconds(), percent, sum.req,
-				reportThroughput(sum.bytes, time.Second))
+			if percent < 100 {
+				fmt.Printf("Duration: %3.0fs (%2d%%) | Rate: %d req/s | Throughput: %s\n",
+					elapsed.Seconds(), percent, sum.req,
+					reportThroughput(sum.bytes, time.Second))
+			}
 			sum.req = 0
 			sum.bytes = 0
 		case <-done:
