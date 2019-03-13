@@ -27,6 +27,7 @@ type stats struct {
 }
 
 type livestats struct {
+	id    int
 	req   int64
 	bytes int64
 }
@@ -39,9 +40,9 @@ func newStats() *stats {
 	return &s
 }
 
-func bench(req *http.Request, client *http.Client,
+func bench(id int, req *http.Request, client *http.Client,
 	done <-chan struct{}, result chan<- *stats, errors chan<- error,
-	rampch <-chan struct{}, livech chan<- livestats, ticker *time.Ticker) {
+	rampch <-chan struct{}, livech chan<- livestats, tickch <-chan struct{}) {
 
 	s := newStats()
 	read := 0
@@ -58,19 +59,19 @@ func bench(req *http.Request, client *http.Client,
 		<-rampch
 	}
 
-	live := livestats{}
+	live := livestats{id: id}
 	livets := time.Now()
 
 LOOP:
 	for {
+		if tickch != nil {
+			<-tickch
+		}
+
 		select {
 		case <-done:
 			break LOOP
 		default:
-		}
-
-		if ticker != nil {
-			<-ticker.C
 		}
 
 		s.req++
@@ -105,7 +106,7 @@ LOOP:
 		milisec = int(delta.Nanoseconds() / 1000000)
 		s.hist[milisec]++
 
-		if livech != nil && t2.Sub(livets) >= time.Second {
+		if livech != nil && t2.Sub(livets) >= 500*time.Millisecond {
 			livech <- live
 			livets = t2
 			live.req = 0
@@ -208,6 +209,9 @@ func liveUpdates(done <-chan struct{}, livech <-chan livestats, duration time.Du
 	var elapsed time.Duration
 	var percent int64
 
+	var ccount int
+	clients := make(map[int]int)
+
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
@@ -217,16 +221,27 @@ LOOP:
 		case live = <-livech:
 			sum.req += live.req
 			sum.bytes += live.bytes
+			clients[live.id]++
 		case t = <-ticker.C:
 			elapsed = t.Sub(start)
 			percent = elapsed.Nanoseconds() * 100 / duration.Nanoseconds()
+			ccount = 0
+			for k := range clients {
+				if clients[k] > 0 {
+					ccount++
+				}
+				clients[k] = 0
+			}
+
 			if percent < 100 {
-				fmt.Printf("Duration: %3.0fs (%2d%%) | Rate: %d req/s | Throughput: %s\n",
+				fmt.Printf("Duration: %3.0fs (%2d%%) | Rate: %d req/s "+
+					"| Throughput: %s | Live clients: %d\n",
 					elapsed.Seconds(), percent, sum.req,
-					reportThroughput(sum.bytes, time.Second))
+					reportThroughput(sum.bytes, time.Second), ccount)
 			}
 			sum.req = 0
 			sum.bytes = 0
+			ccount = 0
 		case <-done:
 			break LOOP
 		}
@@ -237,24 +252,65 @@ LOOP:
 	}
 }
 
-func rampupGenerator(rampch chan<- struct{}, done <-chan struct{}, n int, t time.Duration) {
-	interval := t / time.Duration(n)
-	ticker := time.NewTicker(interval)
+func rampupGenerator(rampch chan<- struct{}, done <-chan struct{}, n int, total time.Duration) {
+	if total == 0 {
+		close(rampch)
+		return
+	}
+
+	d := 100 * time.Millisecond
+	ticker := time.NewTicker(d)
 	defer ticker.Stop()
 
-	for {
-		rampch <- struct{}{}
+	groups := int(total / d)
+	groupCnt := n / groups
 
-		n--
-		if n == 0 {
-			break
+LOOP:
+	for {
+		for i := 0; i < groupCnt; i++ {
+			rampch <- struct{}{}
+
+			n--
+			if n == 0 {
+				break LOOP
+			}
 		}
 
 		select {
 		case <-ticker.C:
 		case <-done:
+			break LOOP
 		}
 	}
+
+	close(rampch)
+}
+
+func rateTicker(rate int, done <-chan struct{}) <-chan struct{} {
+	if rate <= 0 {
+		return nil
+	}
+
+	tickch := make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(time.Second / time.Duration(rate))
+
+	LOOP:
+		for {
+			select {
+			case <-ticker.C:
+				tickch <- struct{}{}
+			case <-done:
+				break LOOP
+			}
+		}
+
+		ticker.Stop()
+		close(tickch)
+	}()
+
+	return tickch
 }
 
 func collectStats(result <-chan *stats, n int) *stats {
@@ -551,16 +607,8 @@ func main() {
 		livech = make(chan livestats, size)
 	}
 
-	var rampch chan struct{}
-	if f.rampup > 0 {
-		rampch = make(chan struct{})
-	}
-
-	var ticker *time.Ticker
-	if f.rate > 0 {
-		ticker = time.NewTicker(time.Second / time.Duration(f.rate))
-		defer ticker.Stop()
-	}
+	rampch := make(chan struct{})
+	tickch := rateTicker(f.rate, done)
 
 	req, err := buildRequest(http.MethodGet, url)
 	if err != nil {
@@ -581,22 +629,19 @@ func main() {
 		fmt.Println("Warning: failed to update rlimit:", err)
 	}
 
-	t1 := time.Now()
 	fmt.Printf("Running %d parallel clients for %v...\n", f.parallel, f.duration)
 	for i := 0; i < f.parallel; i++ {
 		cli := buildClient(f.compression, f.redirects, f.timeout)
-		go bench(req, cli, done, result, errors, rampch, livech, ticker)
-	}
-	go errorReporter(done, errors)
-
-	if f.rampup > 0 {
-		go rampupGenerator(rampch, done, f.parallel, f.rampup)
+		go bench(i+1, req, cli, done, result, errors, rampch, livech, tickch)
 	}
 
 	if f.live {
 		go liveUpdates(done, livech, f.duration)
 	}
+	go errorReporter(done, errors)
+	go rampupGenerator(rampch, done, f.parallel, f.rampup)
 
+	t1 := time.Now()
 	intr := make(chan os.Signal, 1)
 	signal.Notify(intr, os.Interrupt)
 	timer := time.NewTimer(f.duration)
